@@ -29,3 +29,11 @@ The architecture is fault-tolerant and aligned with the exam constraint that neu
 20) As an Instructor, I want one-command startup with docker compose so that system evaluation is reproducible.
 21) As an Instructor, I want simulator env vars and 8080:8080 mapping set in compose so that auto-shutdown tests work correctly.
 22) As an Examiner, I want neutral-region routing separated from processing/data services so that policy constraints are clearly satisfied.
+23) As an Analyst, I want to filter events by sensor so that I can isolate activity in a specific region.
+24) As an Analyst, I want to filter events by event type so that I can focus on one threat category at a time.
+25) As an Operator, I want to inspect per-replica health metrics so that I can diagnose partial failures quickly.
+26) As an Operator, I want to access a live SSE feed of detected events so that I can react to critical signals immediately.
+27) As a Gateway, I want immediate failover if a replica request fails so that client calls remain available.
+28) As a Gateway, I want to return 503 when no replicas are healthy so that the system state is explicit to clients.
+29) As a Processor, I want to reconnect automatically to broker and control stream after restart so that analysis resumes without manual intervention.
+30) As an Instructor, I want reproducible startup order with health-based dependencies so that grading is deterministic.
