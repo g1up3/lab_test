@@ -21,14 +21,13 @@ services:
 
   # ─── Database ───────────────────────────────────────────────
   postgres:
-    image: postgres:16-alpine
+    build: ./db
     environment:
       POSTGRES_DB: seismic
       POSTGRES_USER: seismic
       POSTGRES_PASSWORD: seismic123
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U seismic -d seismic"]
       interval: 5s
@@ -68,10 +67,10 @@ services:
       DATABASE_URL: postgresql://seismic:seismic123@postgres:5432/seismic
       WINDOW_SIZE: "128"
       SAMPLING_RATE_HZ: "20"
-      ANALYZE_EVERY: "32"
+      ANALYZE_EVERY: "48"
       MIN_ANALYSIS_FREQ_HZ: "0.5"
-      AMPLITUDE_THRESHOLD: "0.01"
-      SNR_THRESHOLD: "1.2"
+      AMPLITUDE_THRESHOLD: "0.02"
+      SNR_THRESHOLD: "1.5"
       TIME_BUCKET_SECONDS: "5"
     depends_on:
       postgres:
@@ -91,10 +90,10 @@ services:
       DATABASE_URL: postgresql://seismic:seismic123@postgres:5432/seismic
       WINDOW_SIZE: "128"
       SAMPLING_RATE_HZ: "20"
-      ANALYZE_EVERY: "32"
+      ANALYZE_EVERY: "48"
       MIN_ANALYSIS_FREQ_HZ: "0.5"
-      AMPLITUDE_THRESHOLD: "0.01"
-      SNR_THRESHOLD: "1.2"
+      AMPLITUDE_THRESHOLD: "0.02"
+      SNR_THRESHOLD: "1.5"
       TIME_BUCKET_SECONDS: "5"
     depends_on:
       postgres:
@@ -114,10 +113,10 @@ services:
       DATABASE_URL: postgresql://seismic:seismic123@postgres:5432/seismic
       WINDOW_SIZE: "128"
       SAMPLING_RATE_HZ: "20"
-      ANALYZE_EVERY: "32"
+      ANALYZE_EVERY: "48"
       MIN_ANALYSIS_FREQ_HZ: "0.5"
-      AMPLITUDE_THRESHOLD: "0.01"
-      SNR_THRESHOLD: "1.2"
+      AMPLITUDE_THRESHOLD: "0.02"
+      SNR_THRESHOLD: "1.5"
       TIME_BUCKET_SECONDS: "5"
     depends_on:
       postgres:

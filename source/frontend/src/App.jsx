@@ -107,6 +107,7 @@ export default function App() {
   // Filters
   const [filterSensor, setFilterSensor] = useState('')
   const [filterType, setFilterType] = useState('')
+  const [filterRegion, setFilterRegion] = useState('')
   const [page, setPage] = useState(0)
   const pageSize = 30
 
@@ -136,6 +137,7 @@ export default function App() {
       const params = new URLSearchParams({ limit: pageSize, offset: page * pageSize })
       if (filterSensor) params.set('sensor_id', filterSensor)
       if (filterType) params.set('event_type', filterType)
+      if (filterRegion) params.set('region', filterRegion)
       const resp = await fetch(apiUrl('/events', Object.fromEntries(params)), { headers: authHeaders() })
       if (resp.ok) {
         const data = await resp.json()
@@ -143,7 +145,7 @@ export default function App() {
         setTotalEvents(data.total || 0)
       }
     } catch (e) { /* ignore */ }
-  }, [page, filterSensor, filterType, apiUrl, authHeaders])
+  }, [page, filterSensor, filterType, filterRegion, apiUrl, authHeaders])
 
   const fetchStats = useCallback(async () => {
     try {
@@ -225,7 +227,7 @@ export default function App() {
   }, [apiUrl, apiKey])
 
   // Reset page when filters change
-  useEffect(() => { setPage(0) }, [filterSensor, filterType])
+  useEffect(() => { setPage(0) }, [filterSensor, filterType, filterRegion])
 
   const healthyCount = replicas?.healthy || 0
   const totalReplicas = replicas?.total || 0
@@ -233,6 +235,7 @@ export default function App() {
   const statusLabels = { healthy: 'All Systems Operational', degraded: 'Degraded', down: 'System Down' }
 
   const uniqueSensors = [...new Set(events.map(e => e.sensor_id).concat(sensors.map(s => s.id)))]
+  const uniqueRegions = [...new Set(events.map(e => e.region).concat(sensors.map(s => s.region)).filter(Boolean))]
   const totalPages = Math.ceil(totalEvents / pageSize)
   const lastEventAt = events[0]?.detected_at || liveEvents[0]?.detected_at || null
   const updatedAt = new Date().toISOString()
@@ -310,7 +313,13 @@ export default function App() {
           <option value="conventional_explosion">Conventional Explosion</option>
           <option value="nuclear_like">Nuclear-like</option>
         </select>
-        <button onClick={() => { setFilterSensor(''); setFilterType(''); setPage(0) }}>
+        <select value={filterRegion} onChange={e => setFilterRegion(e.target.value)}>
+          <option value="">All Regions</option>
+          {uniqueRegions.sort().map(r => (
+            <option key={r} value={r}>{r}</option>
+          ))}
+        </select>
+        <button onClick={() => { setFilterSensor(''); setFilterType(''); setFilterRegion(''); setPage(0) }}>
           Clear Filters
         </button>
       </div>

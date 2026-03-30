@@ -289,6 +289,56 @@ PostgreSQL does not connect to external services.
 
 ## NETWORK TOPOLOGY (POLICY COMPLIANCE)
 
+## ARCHITECTURE DIAGRAMS
+
+### Runtime Component Diagram
+
+```mermaid
+flowchart LR
+	FE[Frontend Dashboard\nneutral region]
+	GW[Gateway\nentry point + health check + RR]
+	P1[Processor-1]
+	P2[Processor-2]
+	P3[Processor-3]
+	DB[(PostgreSQL)]
+	BR[Broker\nforward only]
+	SIM[Simulator]
+
+	FE -->|HTTP| GW
+	GW -->|proxy| P1
+	GW -->|proxy| P2
+	GW -->|proxy| P3
+	P1 -->|insert dedup| DB
+	P2 -->|insert dedup| DB
+	P3 -->|insert dedup| DB
+	SIM -->|sensor WS streams| BR
+	BR -->|fan-out WS| P1
+	BR -->|fan-out WS| P2
+	BR -->|fan-out WS| P3
+	SIM -->|SSE control| P1
+	SIM -->|SSE control| P2
+	SIM -->|SSE control| P3
+```
+
+### Fault-Tolerance and Failover Diagram
+
+```mermaid
+flowchart TD
+	HC[Gateway periodic health checks]
+	RR[Round-robin on healthy replicas]
+	F1[Replica failure detected]
+	EX[Failed replica excluded]
+	CT[Traffic continues to remaining healthy replicas]
+	ERR[503 only if all replicas are down]
+
+	HC --> RR
+	RR --> F1
+	F1 --> EX
+	EX --> CT
+	CT --> RR
+	EX --> ERR
+```
+
 - camera_cafe_neutral_region: broker, gateway, frontend
 - camera_cafe_processing_region: simulator, processor-1, processor-2, processor-3, postgres
 - Boundary services: broker and gateway are the only allowed bridges between neutral and processing layers.
