@@ -1,336 +1,281 @@
-# Student Documentation - CAMERA CAFE
-
-## Project Name
-**CAMERA CAFE** - Seismic Intelligence Monitoring Platform
-
-## Team
-| Role | Name |
-|------|------|
-| Developer | *(fill in)* |
-
----
-
-## 1. System Architecture
-
-### 1.1 High-Level Overview
-
-The system follows a distributed microservice architecture with the following components:
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        NEUTRAL REGION                               │
-│  ┌─────────┐     ┌────────┐     ┌─────────┐     ┌──────────────┐  │
-│  │Simulator│────►│ Broker  │────►│ Gateway │────►│   Frontend   │  │
-│  │ (8080)  │     │ (9000)  │     │ (8081)  │     │   (3000)     │  │
-│  └────┬────┘     └───┬────┘     └────┬────┘     └──────────────┘  │
-│       │              │               │                              │
-│       │         ┌────┴─────────┬─────┴──────┐                      │
-│       │         │              │             │                      │
-│  ┌────┴──────┐  │              │             │                      │
-│  │  SSE      │  │              │             │                      │
-│  │ Control   │  │              │             │                      │
-│  │ Stream    │  │              │             │                      │
-│  └───┬──┬──┬─┘  │              │             │                      │
-└──────┼──┼──┼────┼──────────────┼─────────────┼──────────────────────┘
-       │  │  │    │              │             │
-┌──────┼──┼──┼────┼──────────────┼─────────────┼──────────────────────┐
-│      │  │  │ DATACENTER REGION │             │                      │
-│  ┌───▼──┼──┼───┐ ┌────────────▼┐ ┌──────────▼─┐                   │
-│  │Processor-1  │ │ Processor-2 │ │ Processor-3 │                   │
-│  │  (9001)     │ │   (9001)    │ │   (9001)    │                   │
-│  └──────┬──────┘ └──────┬──────┘ └──────┬──────┘                   │
-│         │               │               │                           │
-│         └───────────────┼───────────────┘                           │
-│                         │                                           │
-│                  ┌──────▼──────┐                                    │
-│                  │  PostgreSQL │                                    │
-│                  │   (5432)    │                                    │
-│                  └─────────────┘                                    │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### 1.2 Component Descriptions
-
-| Component | Technology | Port | Description |
-|-----------|-----------|------|-------------|
-| **Simulator** | Provided Docker image | 8080 | Generates seismic data for 12 sensors via WebSocket |
-| **Broker** | Python/FastAPI | 9000 | Connects to all sensor WebSockets, fan-out broadcasts to replicas |
-| **Processor** (x3) | Python/FastAPI + NumPy | 9001 | FFT analysis, event classification, DB persistence |
-| **Gateway** | Python/FastAPI | 8081 | Health-checked reverse proxy with round-robin load balancing |
-| **Frontend** | React + Vite + Nginx | 3000 | Real-time monitoring dashboard |
-| **PostgreSQL** | PostgreSQL 16 | 5432 | Shared persistent event storage |
-
-### 1.3 Data Flow
-
-1. **Ingestion**: Simulator → Broker (WebSocket per sensor, 20 Hz each)
-2. **Distribution**: Broker → All Processors (WebSocket broadcast, fan-out)
-3. **Analysis**: Processor receives sample → adds to sliding window → every 64 samples, runs FFT → classifies event
-4. **Persistence**: Processor → PostgreSQL (INSERT ON CONFLICT DO NOTHING for deduplication)
-5. **Presentation**: Frontend → Gateway → Healthy Processor → PostgreSQL → Response
-
-### 1.4 Failure Model
+# SYSTEM DESCRIPTION:
 
-- **Only processors are subject to failure** (via simulator SHUTDOWN commands).
-- The broker, gateway, database, and frontend are assumed reliable.
-- Docker `restart: always` ensures processors automatically recover.
-- The gateway detects failures within 5 seconds and reroutes traffic.
-
-### 1.5 Neutral Region Compliance (Exam Constraint)
-
-The deployment enforces a strict logical separation between neutral routing services and intelligence-processing services:
-
-- **Neutral region services**: `broker`, `gateway`, `frontend` (routing/forwarding and presentation only)
-- **External processing/data region**: `processor-1`, `processor-2`, `processor-3`, `postgres`
-- **Simulator**: provided container managed by Docker Compose on host port `8080`
+CAMERA CAFE is a seismic intelligence monitoring platform composed of containerized services.
+A provided simulator emits real-time seismic streams and control events. A broker in the neutral region only forwards sensor data to three processor replicas.
+Processors execute FFT-based analysis, classify events, and persist unique detections into PostgreSQL.
+A gateway provides a single API entrypoint and applies health-checked round-robin load balancing over live replicas.
+A frontend dashboard provides real-time monitoring and historical inspection.
 
-This separation is explicitly encoded in [source/docker-compose.yml](source/docker-compose.yml) using two Docker networks:
-
-- `camera_cafe_neutral_region`
-- `camera_cafe_processing_region`
-
-Network membership rules:
-
-- `frontend` is attached only to `camera_cafe_neutral_region`
-- `processor-*` and `postgres` are attached only to `camera_cafe_processing_region`
-- `broker` and `gateway` are the only boundary services attached to both networks
-
-This ensures no analysis workload is hosted in the neutral layer: FFT, event classification, and persistence happen only in processors and PostgreSQL.
-
----
+The architecture enforces the exam policy for neutral infrastructure:
+- Neutral/routing layer: broker, gateway, frontend
+- Processing/data layer: simulator, processor replicas, PostgreSQL
 
-## 2. Technology Stack
 
-| Layer | Technology | Justification |
-|-------|-----------|---------------|
-| Backend | Python 3.12 + FastAPI | Excellent async support for WebSocket/SSE handling; NumPy ecosystem for FFT |
-| FFT Analysis | NumPy | Industry-standard, optimized FFT implementation |
-| Database | PostgreSQL 16 | Robust relational DB with native conflict handling for deduplication |
-| DB Driver | asyncpg | High-performance async PostgreSQL driver |
-| Gateway | Python/FastAPI | Lightweight, consistent with backend stack |
-| Frontend | React 18 + Vite | Fast build tooling, modern component model |
-| Serving | Nginx | Efficient static file serving + reverse proxy to gateway |
-| Orchestration | Docker Compose | Single-command deployment, service dependency management |
+# USER STORIES:
+
+1) As an Operator, I want automatic sensor discovery so that ingestion starts without manual setup.
+2) As a Broker, I want to connect to all sensor WebSockets so that all measurements are collected.
+3) As a Processor, I want to receive all forwarded measurements so that each replica can analyze independently.
+4) As a Processor, I want sliding windows per sensor so that FFT can run continuously.
+5) As a Processor, I want FFT + thresholds so that only meaningful events are classified.
+6) As a Processor, I want deterministic event IDs and conflict-safe inserts so that duplicates are prevented.
+7) As a Processor, I want continuous SSE control listening so that shutdown commands are received.
+8) As a Processor, I want immediate exit on SHUTDOWN so that failure simulation is realistic.
+9) As a Gateway, I want periodic health checks so that dead replicas are excluded quickly.
+10) As a Gateway, I want round-robin over healthy replicas only so that the service remains available.
+11) As an Analyst, I want filtered historical queries so that I can inspect events by sensor/type/time.
+12) As an Analyst, I want live updates so that I can monitor seismic changes in real time.
+13) As an Operator, I want replica status visibility so that degraded mode is explicit.
+14) As an Instructor, I want docker compose startup with simulator env vars and fixed 8080 mapping so that tests are reproducible.
+15) As an Examiner, I want network-level logical separation of neutral and processing layers so that policy constraints are verifiable.
 
----
 
-## 3. Service Details
+# CONTAINERS:
 
-### 3.1 Broker Service
+## CONTAINER_NAME: Simulator
 
-**Responsibility**: Data distribution only (no processing, per neutrality constraint).
+### DESCRIPTION:
+Provided container image that generates sensor streams and fault-injection control commands.
 
-**Startup sequence**:
-1. Fetch sensor list from simulator (`GET /api/devices/`)
-2. Open WebSocket connection to each sensor
-3. Accept subscriber connections from processors
+### USER STORIES:
+1, 2, 7, 8, 14
 
-**Fan-out strategy**: Broadcast model — every measurement is sent to every connected processor.
+### PORTS:
+8080:8080
 
-**Reconnection**: If a sensor WebSocket drops, the broker reconnects with exponential backoff (2s intervals).
+### DESCRIPTION:
+The Simulator is configured in docker-compose with contract variables and is reachable at localhost:8080.
 
-**Endpoints**:
-- `GET /health` — Service health with subscriber count
-- `GET /sensors` — Cached sensor metadata
-- `WS /ws/subscribe` — Processor subscription endpoint
+### PERSISTANCE EVALUATION
+The Simulator does not require persistent storage for this project.
 
-### 3.2 Processor Service
+### EXTERNAL SERVICES CONNECTIONS
+The Simulator does not connect to external services.
+
+### MICROSERVICES:
+
+#### MICROSERVICE: simulator-api
+- TYPE: backend
+- DESCRIPTION: Emits seismic measurements and control events.
+- PORTS: 8080
+- TECHNOLOGICAL SPECIFICATION:
+  - Image: seismic-signal-simulator:multiarch_v1
+  - Compose variables:
+    - SAMPLING_RATE_HZ=20
+    - AUTO_SHUTDOWN_ENABLED=true
+    - AUTO_SHUTDOWN_MIN_SECONDS=30
+    - AUTO_SHUTDOWN_MAX_SECONDS=90
+- ENDPOINTS:
+
+	| HTTP METHOD | URL | Description | User Stories |
+	| ----------- | --- | ----------- | ------------ |
+	| GET | /health | Runtime config and health | 14 |
+	| GET | /api/devices/ | Device discovery | 1 |
+	| WS | /api/device/{sensor_id}/ws | Sensor stream | 2 |
+	| GET | /api/control | SSE control stream | 7, 8 |
+	| POST | /api/admin/shutdown | Manual SHUTDOWN trigger | 8 |
 
-**Responsibility**: Signal analysis, event classification, and persistence.
+
+## CONTAINER_NAME: Broker
 
-**Processing pipeline**:
-1. Receive measurement from broker
-2. Append to sensor's sliding window (deque, max 128 samples)
-3. Every 32 samples, trigger FFT analysis:
-   - Apply Hanning window function
-   - Compute real FFT via `numpy.fft.rfft`
-   - Normalize magnitudes
-   - Find dominant frequency (highest peak above 0.5 Hz)
-   - Check amplitude threshold AND signal-to-noise ratio
-   - Classify event based on frequency bands
-4. Generate deduplication key: `{sensor_id}_{event_type}_{time_bucket}`
-5. INSERT with ON CONFLICT DO NOTHING
+### DESCRIPTION:
+Neutral-region forwarding service. It consumes simulator streams and broadcasts measurements to all processors.
 
-**Control stream handling**: Each replica connects to `GET /api/control` (SSE). On receiving `{"command": "SHUTDOWN"}`, the process terminates immediately via `os._exit(1)`.
-
-**Endpoints**:
-- `GET /health` — Replica status
-- `GET /api/events` — Query events with filters and pagination
-- `GET /api/events/stream` — SSE stream of newly detected events
-- `GET /api/sensors` — Tracked sensors and window status
-- `GET /api/stats` — Event statistics
+### USER STORIES:
+2, 3, 15
 
-### 3.3 Gateway Service
+### PORTS:
+9000:9000
 
-**Responsibility**: Single entry point, load balancing, fault tolerance.
+### DESCRIPTION:
+The Broker performs no intelligence processing and no persistence. It only routes data.
 
-**Health checking**: Every 1 second, pings each processor's `/health` endpoint (1.5s timeout). Unreachable or non-200 processors are removed from the routing pool.
+### PERSISTANCE EVALUATION
+The Broker does not require persistent storage.
 
-**Load balancing**: Round-robin across healthy processors.
+### EXTERNAL SERVICES CONNECTIONS
+The Broker connects to:
+- Simulator endpoints for discovery and per-device streams
+- Processor subscribers via internal WebSocket
+
+### MICROSERVICES:
+
+#### MICROSERVICE: broker
+- TYPE: backend
+- DESCRIPTION: WebSocket fan-out distributor with sensor metadata enrichment.
+- PORTS: 9000
+- TECHNOLOGICAL SPECIFICATION:
+  - Python 3.12, FastAPI, websockets, httpx
+- ENDPOINTS:
+
+	| HTTP METHOD | URL | Description | User Stories |
+	| ----------- | --- | ----------- | ------------ |
+	| GET | /health | Service health and counters | 15 |
+	| GET | /sensors | Cached sensor metadata | 1 |
+	| WS | /ws/subscribe | Processor subscription | 3 |
+
+
+## CONTAINER_NAME: Processor-Cluster
+
+### DESCRIPTION:
+Three processing replicas executing FFT analysis, event classification, dedup-safe persistence, and control-stream shutdown handling.
+
+### USER STORIES:
+3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
 
-**Failure handling**: Returns HTTP 503 if no healthy processors are available.
-
-**Endpoints** (proxied):
-- `GET /health` — Gateway health + replica counts
-- `GET /api/events` — Proxied to healthy processor
-- `GET /api/events/stream` — SSE proxy with auto-failover
-- `GET /api/sensors` — Proxied to healthy processor
-- `GET /api/stats` — Proxied to healthy processor
-- `GET /api/replicas` — Replica health status (gateway-native)
-
-### 3.4 Frontend Dashboard
-
-**Technology**: React 18 SPA served by Nginx.
-
-**Features**:
-- Real-time event table with auto-refresh (2s polling)
-- Live event feed via SSE
-- Event filtering by sensor and type
-- Pagination for historical browsing
-- Replica health status panel
-- Sensor overview panel
-- Summary statistics cards
-- System-wide status indicator (Operational/Degraded/Down)
-
-**API proxying**: Nginx forwards `/api/*` and `/health` requests to the gateway, avoiding CORS issues.
-
----
-
-## 4. Deduplication Strategy
-
-Since all 3 replicas receive the same data and run the same FFT analysis, they will detect the same events. To prevent duplicates:
-
-1. **Time bucketing**: Detection timestamps are floored to 5-second intervals.
-2. **Composite key**: `event_id = {sensor_id}_{event_type}_{time_bucket}`
-3. **DB constraint**: `UNIQUE(event_id)` on the `detected_events` table.
-4. **Idempotent insert**: `INSERT ... ON CONFLICT (event_id) DO NOTHING`
+### PORTS:
+9001 (internal Docker network, one service per replica)
 
-The first replica to insert wins; others silently skip. The `replica_id` field records which replica stored the event.
+### DESCRIPTION:
+Each replica receives the full broker stream, analyzes independently, and exits immediately when receiving SHUTDOWN.
+Docker restart policy provides automatic recovery.
 
----
-
-## 5. FFT Analysis Details
-
-### Window Configuration
-- **Window size**: 256 samples (12.8 seconds at 20 Hz)
-- **Analysis interval**: Every 64 new samples (~3.2 seconds)
-- **Window function**: Hanning (reduces spectral leakage)
-- **FFT method**: `numpy.fft.rfft` (real-input FFT, efficient)
-
-### Frequency Resolution
-- Sampling rate: 20 Hz
-- Nyquist frequency: 10 Hz
-- Frequency resolution: 20/256 = 0.078 Hz
-
-### Detection Criteria
-Both conditions must be met:
-1. Peak FFT magnitude > `AMPLITUDE_THRESHOLD` (default: 0.5)
-2. Signal-to-noise ratio > `SNR_THRESHOLD` (default: 4.0)
+### PERSISTANCE EVALUATION
+Processors do not keep local persistent state. Persistent records are stored in PostgreSQL.
 
-### Classification Bands
-| Event Type | Frequency Range |
-|------------|----------------|
-| Earthquake | 0.5 <= f < 3.0 Hz |
-| Conventional Explosion | 3.0 <= f < 8.0 Hz |
-| Nuclear-like Event | f >= 8.0 Hz |
-
----
+### EXTERNAL SERVICES CONNECTIONS
+Processors connect to:
+- Broker stream: ws://broker:9000/ws/subscribe
+- Simulator control SSE: GET /api/control
+- PostgreSQL for event storage
 
-## 6. Database Schema
+### MICROSERVICES:
 
-```sql
-CREATE TABLE detected_events (
-    id SERIAL PRIMARY KEY,
-    event_id VARCHAR(200) UNIQUE NOT NULL,
-    sensor_id VARCHAR(50) NOT NULL,
-    sensor_name VARCHAR(200),
-    region VARCHAR(200),
-    event_type VARCHAR(50) NOT NULL,
-    dominant_frequency DOUBLE PRECISION NOT NULL,
-    magnitude DOUBLE PRECISION NOT NULL,
-    detected_at TIMESTAMPTZ NOT NULL,
-    time_bucket TIMESTAMPTZ NOT NULL,
-    replica_id VARCHAR(100),
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
+#### MICROSERVICE: processor
+- TYPE: backend
+- DESCRIPTION: FFT-based event detector and persistence service.
+- PORTS: 9001 (internal)
+- TECHNOLOGICAL SPECIFICATION:
+  - Python 3.12, FastAPI, NumPy, asyncpg, websockets, httpx
+  - Runtime parameters:
+    - WINDOW_SIZE=128
+    - ANALYZE_EVERY=32
+    - MIN_ANALYSIS_FREQ_HZ=0.5
+    - AMPLITUDE_THRESHOLD=0.01
+    - SNR_THRESHOLD=1.2
+    - TIME_BUCKET_SECONDS=5
+- ENDPOINTS:
 
-**Indexes**: `sensor_id`, `event_type`, `detected_at DESC` for efficient querying.
+	| HTTP METHOD | URL | Description | User Stories |
+	| ----------- | --- | ----------- | ------------ |
+	| GET | /health | Replica health and counters | 13 |
+	| GET | /api/events | Historical events query | 11 |
+	| GET | /api/events/stream | SSE live event stream | 12 |
+	| GET | /api/sensors | Tracked sensors overview | 4 |
+	| GET | /api/stats | Aggregated stats | 11 |
 
----
 
-## 7. Docker Configuration
+## CONTAINER_NAME: Gateway
 
-### Services
-| Service | Build Context | Image | Replicas |
-|---------|--------------|-------|----------|
-| simulator | - | `seismic-signal-simulator:multiarch_v1` | 1 |
-| postgres | - | `postgres:16-alpine` | 1 |
-| broker | `./broker` | Built from Dockerfile | 1 |
-| processor-1 | `./processor` | Built from Dockerfile | 1 |
-| processor-2 | `./processor` | Built from Dockerfile | 1 |
-| processor-3 | `./processor` | Built from Dockerfile | 1 |
-| gateway | `./gateway` | Built from Dockerfile | 1 |
-| frontend | `./frontend` | Built from Dockerfile (multi-stage) | 1 |
+### DESCRIPTION:
+Neutral-region API entrypoint with health-checked round-robin load balancing.
 
-### Startup Order
-1. `simulator` + `postgres` (with healthchecks)
-2. `broker` (waits for simulator healthy)
-3. `processor-1`, `processor-2`, `processor-3` (wait for postgres + broker healthy)
-4. `gateway` (waits for processors started)
-5. `frontend` (waits for gateway started)
+### USER STORIES:
+9, 10, 11, 12, 13
 
-Simulator contract variables are configured in compose:
+### PORTS:
+8081:8081
 
-- `SAMPLING_RATE_HZ=20`
-- `AUTO_SHUTDOWN_ENABLED=true`
-- `AUTO_SHUTDOWN_MIN_SECONDS=30`
-- `AUTO_SHUTDOWN_MAX_SECONDS=90`
+### DESCRIPTION:
+Gateway forwards requests to healthy processors, removes dead replicas quickly, and performs failover.
 
-Simulator port mapping is fixed to `8080:8080`.
+### PERSISTANCE EVALUATION
+Gateway logic is stateless for routing; metadata storage uses PostgreSQL.
 
-### How to Run
-```bash
-# Start everything
-cd source/
-docker compose up --build
-```
+### EXTERNAL SERVICES CONNECTIONS
+Gateway connects to:
+- Processor replicas (internal HTTP)
+- PostgreSQL (API keys and audit logs)
 
-The dashboard will be available at **http://localhost:3000**.
+### MICROSERVICES:
 
----
+#### MICROSERVICE: gateway
+- TYPE: middleware/backend
+- DESCRIPTION: Single entrypoint with resilient routing and role-based API access.
+- PORTS: 8081
+- TECHNOLOGICAL SPECIFICATION:
+  - Python 3.12, FastAPI, httpx, asyncpg
+  - Health checks: interval 1s, timeout 1.5s
+- ENDPOINTS:
 
-## 8. API Endpoints Summary
+	| HTTP METHOD | URL | Description | User Stories |
+	| ----------- | --- | ----------- | ------------ |
+	| GET | /health | Gateway status and healthy count | 9 |
+	| GET | /api/events | Proxied events query | 11 |
+	| GET | /api/events/stream | Proxied SSE stream | 12 |
+	| GET | /api/sensors | Proxied sensors endpoint | 11 |
+	| GET | /api/stats | Proxied stats endpoint | 11 |
+	| GET | /api/replicas | Replica liveness snapshot | 13 |
 
-### Gateway (port 8081) / Frontend (port 3000, via nginx proxy)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Gateway health status |
-| GET | `/api/events?limit=&offset=&sensor_id=&event_type=&since=` | Query detected events |
-| GET | `/api/events/stream` | SSE stream of new events |
-| GET | `/api/sensors` | List tracked sensors |
-| GET | `/api/stats` | Event statistics summary |
-| GET | `/api/replicas` | Processing replica health status |
+## CONTAINER_NAME: Frontend
 
-### Broker (port 9000)
+### DESCRIPTION:
+Operator dashboard for live monitoring, filters, and replica health visibility.
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Broker health |
-| GET | `/sensors` | Sensor metadata |
-| WS | `/ws/subscribe` | Processor subscription |
+### USER STORIES:
+11, 12, 13
 
----
+### PORTS:
+3000:80
 
-## 9. Fault Tolerance Demo
+### DESCRIPTION:
+React SPA served by Nginx; consumes only Gateway APIs.
 
-To demonstrate fault tolerance:
+### PERSISTANCE EVALUATION
+Frontend does not require a database.
 
-1. Start the system: `docker compose up --build`
-2. Wait for events to appear in the dashboard
-3. Manually kill a processor: `docker compose stop processor-1`
-4. Observe: dashboard shows "Degraded" status, but events continue being detected
-5. Restart the processor: `docker compose start processor-1`
-6. Observe: system returns to "Operational" status
+### EXTERNAL SERVICES CONNECTIONS
+Frontend connects to Gateway endpoints.
 
-Alternatively, the simulator's auto-shutdown will randomly kill processors via the SSE control stream. The `restart: always` policy ensures they recover automatically.
+### MICROSERVICES:
+
+#### MICROSERVICE: dashboard-ui
+- TYPE: frontend
+- DESCRIPTION: SPA monitoring interface for operators.
+- PORTS: 3000
+- PAGES:
+
+	| Name | Description | Related Microservice | User Stories |
+	| ---- | ----------- | -------------------- | ------------ |
+	| Dashboard | Real-time table, filters, stats, replica health | gateway | 11, 12, 13 |
+
+
+## CONTAINER_NAME: PostgreSQL
+
+### DESCRIPTION:
+Persistent database for deduplicated seismic events and gateway metadata.
+
+### USER STORIES:
+6, 11
+
+### PORTS:
+5432:5432
+
+### DESCRIPTION:
+Stores detected events with unique event_id and supports query endpoints.
+
+### PERSISTANCE EVALUATION
+PostgreSQL requires persistent storage and uses Docker volume postgres_data.
+
+### EXTERNAL SERVICES CONNECTIONS
+PostgreSQL does not connect to external services.
+
+### MICROSERVICES:
+
+#### MICROSERVICE: postgres
+- TYPE: database
+- DESCRIPTION: ACID storage for events and gateway metadata.
+- PORTS: 5432
+- DB STRUCTURE:
+
+	**_detected_events_** : | **_id_** | event_id (UNIQUE) | sensor_id | sensor_name | region | event_type | dominant_frequency | magnitude | detected_at | time_bucket | replica_id | created_at |
+
+
+## NETWORK TOPOLOGY (POLICY COMPLIANCE)
+
+- camera_cafe_neutral_region: broker, gateway, frontend
+- camera_cafe_processing_region: simulator, processor-1, processor-2, processor-3, postgres
+- Boundary services: broker and gateway are the only allowed bridges between neutral and processing layers.
+
+This guarantees that FFT analysis, classification, and persistence are outside the neutral routing layer.
