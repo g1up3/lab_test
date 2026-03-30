@@ -75,6 +75,27 @@ The system follows a distributed microservice architecture with the following co
 - Docker `restart: always` ensures processors automatically recover.
 - The gateway detects failures within 5 seconds and reroutes traffic.
 
+### 1.5 Neutral Region Compliance (Exam Constraint)
+
+The deployment enforces a strict logical separation between neutral routing services and intelligence-processing services:
+
+- **Neutral region services**: `broker`, `gateway`, `frontend` (routing/forwarding and presentation only)
+- **External processing/data region**: `processor-1`, `processor-2`, `processor-3`, `postgres`
+- **Simulator**: provided container managed by Docker Compose on host port `8080`
+
+This separation is explicitly encoded in [source/docker-compose.yml](source/docker-compose.yml) using two Docker networks:
+
+- `camera_cafe_neutral_region`
+- `camera_cafe_processing_region`
+
+Network membership rules:
+
+- `frontend` is attached only to `camera_cafe_neutral_region`
+- `processor-*` and `postgres` are attached only to `camera_cafe_processing_region`
+- `broker` and `gateway` are the only boundary services attached to both networks
+
+This ensures no analysis workload is hosted in the neutral layer: FFT, event classification, and persistence happen only in processors and PostgreSQL.
+
 ---
 
 ## 2. Technology Stack
@@ -118,8 +139,8 @@ The system follows a distributed microservice architecture with the following co
 
 **Processing pipeline**:
 1. Receive measurement from broker
-2. Append to sensor's sliding window (deque, max 256 samples)
-3. Every 64 samples, trigger FFT analysis:
+2. Append to sensor's sliding window (deque, max 128 samples)
+3. Every 32 samples, trigger FFT analysis:
    - Apply Hanning window function
    - Compute real FFT via `numpy.fft.rfft`
    - Normalize magnitudes
@@ -142,7 +163,7 @@ The system follows a distributed microservice architecture with the following co
 
 **Responsibility**: Single entry point, load balancing, fault tolerance.
 
-**Health checking**: Every 5 seconds, pings each processor's `/health` endpoint. Unreachable or non-200 processors are removed from the routing pool.
+**Health checking**: Every 1 second, pings each processor's `/health` endpoint (1.5s timeout). Unreachable or non-200 processors are removed from the routing pool.
 
 **Load balancing**: Round-robin across healthy processors.
 
@@ -252,17 +273,23 @@ CREATE TABLE detected_events (
 | frontend | `./frontend` | Built from Dockerfile (multi-stage) | 1 |
 
 ### Startup Order
-1. `simulator` + `postgres` (parallel, with healthchecks)
+1. `simulator` + `postgres` (with healthchecks)
 2. `broker` (waits for simulator healthy)
 3. `processor-1`, `processor-2`, `processor-3` (wait for postgres + broker healthy)
 4. `gateway` (waits for processors started)
 5. `frontend` (waits for gateway started)
 
+Simulator contract variables are configured in compose:
+
+- `SAMPLING_RATE_HZ=20`
+- `AUTO_SHUTDOWN_ENABLED=true`
+- `AUTO_SHUTDOWN_MIN_SECONDS=30`
+- `AUTO_SHUTDOWN_MAX_SECONDS=90`
+
+Simulator port mapping is fixed to `8080:8080`.
+
 ### How to Run
 ```bash
-# Load the simulator image (one time)
-docker load -i seismic-signal-simulator-oci.tar
-
 # Start everything
 cd source/
 docker compose up --build

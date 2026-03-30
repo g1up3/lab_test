@@ -26,6 +26,7 @@ logger = logging.getLogger("gateway")
 
 PROCESSOR_URLS = os.getenv("PROCESSOR_URLS", "http://processor-1:9001,http://processor-2:9001,http://processor-3:9001")
 HEALTH_CHECK_INTERVAL = int(os.getenv("HEALTH_CHECK_INTERVAL", "5"))
+HEALTH_CHECK_TIMEOUT = float(os.getenv("HEALTH_CHECK_TIMEOUT", "2.0"))
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://seismic:seismic123@postgres:5432/seismic")
 KEY_HASH_SECRET = os.getenv("KEY_HASH_SECRET", "camera-cafe-dev-secret")
 BOOTSTRAP_ADMIN_KEY = os.getenv("BOOTSTRAP_ADMIN_KEY", "")
@@ -196,30 +197,42 @@ def get_next_healthy() -> str | None:
     return url
 
 
+def mark_processor_unhealthy(url: str, status: str = "unreachable") -> None:
+    """Immediately mark a processor as unavailable and remove it from RR pool."""
+    global healthy_processors
+    processor_status[url] = {
+        "url": url,
+        "status": status,
+        "details": None,
+        "last_check": time.time(),
+    }
+    healthy_processors = [p for p in healthy_processors if p != url]
+
+
 async def check_health():
     """Periodically check health of all processors."""
     global healthy_processors
     while True:
-        alive = []
-        for url in processors:
+        alive: list[str] = []
+
+        async def probe(url: str, client: httpx.AsyncClient):
             try:
-                async with httpx.AsyncClient(timeout=3) as client:
-                    resp = await client.get(f"{url}/health")
-                    if resp.status_code == 200:
-                        alive.append(url)
-                        processor_status[url] = {
-                            "url": url,
-                            "status": "healthy",
-                            "details": resp.json(),
-                            "last_check": time.time(),
-                        }
-                    else:
-                        processor_status[url] = {
-                            "url": url,
-                            "status": "unhealthy",
-                            "details": None,
-                            "last_check": time.time(),
-                        }
+                resp = await client.get(f"{url}/health")
+                if resp.status_code == 200:
+                    alive.append(url)
+                    processor_status[url] = {
+                        "url": url,
+                        "status": "healthy",
+                        "details": resp.json(),
+                        "last_check": time.time(),
+                    }
+                else:
+                    processor_status[url] = {
+                        "url": url,
+                        "status": "unhealthy",
+                        "details": None,
+                        "last_check": time.time(),
+                    }
             except Exception:
                 processor_status[url] = {
                     "url": url,
@@ -227,6 +240,9 @@ async def check_health():
                     "details": None,
                     "last_check": time.time(),
                 }
+
+        async with httpx.AsyncClient(timeout=HEALTH_CHECK_TIMEOUT) as client:
+            await asyncio.gather(*(probe(url, client) for url in processors))
 
         if set(alive) != set(healthy_processors):
             logger.info(f"Healthy processors: {len(alive)}/{len(processors)} -> {alive}")
@@ -236,16 +252,23 @@ async def check_health():
 
 async def proxy_get(path: str, params: dict = None) -> JSONResponse:
     """Proxy a GET request to a healthy processor."""
-    url = get_next_healthy()
-    if not url:
+    if not healthy_processors:
         return JSONResponse(status_code=503, content={"error": "No healthy processors available"})
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{url}{path}", params=params)
-            return JSONResponse(status_code=resp.status_code, content=resp.json())
-    except Exception as e:
-        logger.error(f"Proxy error: {e}")
-        return JSONResponse(status_code=502, content={"error": "Upstream error"})
+
+    attempts = len(healthy_processors)
+    async with httpx.AsyncClient(timeout=10) as client:
+        for _ in range(attempts):
+            url = get_next_healthy()
+            if not url:
+                break
+            try:
+                resp = await client.get(f"{url}{path}", params=params)
+                return JSONResponse(status_code=resp.status_code, content=resp.json())
+            except Exception as e:
+                logger.error(f"Proxy error from {url}: {e}")
+                mark_processor_unhealthy(url)
+
+    return JSONResponse(status_code=502, content={"error": "Upstream error"})
 
 
 @app.on_event("startup")
