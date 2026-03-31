@@ -53,7 +53,7 @@ The architecture enforces the exam policy for neutral infrastructure:
 Provided container image that generates sensor streams and fault-injection control commands.
 
 ### USER STORIES:
-1, 2, 7, 8, 14
+1, 2, 11, 12, 21
 
 ### PORTS:
 8080:8080
@@ -87,8 +87,8 @@ The Simulator does not connect to external services.
 	| GET | /health | Runtime config and health | 14 |
 	| GET | /api/devices/ | Device discovery | 1 |
 	| WS | /api/device/{sensor_id}/ws | Sensor stream | 2 |
-	| GET | /api/control | SSE control stream | 7, 8 |
-	| POST | /api/admin/shutdown | Manual SHUTDOWN trigger | 8 |
+	| GET | /api/control | SSE control stream | 11, 12 |
+	| POST | /api/admin/shutdown | Manual SHUTDOWN trigger | 12 |
 
 
 ## CONTAINER_NAME: Broker
@@ -164,20 +164,20 @@ Processors connect to:
   - Python 3.12, FastAPI, NumPy, asyncpg, websockets, httpx
   - Runtime parameters:
     - WINDOW_SIZE=128
-    - ANALYZE_EVERY=32
+    - ANALYZE_EVERY=48
     - MIN_ANALYSIS_FREQ_HZ=0.5
-    - AMPLITUDE_THRESHOLD=0.01
-    - SNR_THRESHOLD=1.2
+    - AMPLITUDE_THRESHOLD=0.02
+    - SNR_THRESHOLD=1.5
     - TIME_BUCKET_SECONDS=5
 - ENDPOINTS:
 
 	| HTTP METHOD | URL | Description | User Stories |
 	| ----------- | --- | ----------- | ------------ |
-	| GET | /health | Replica health and counters | 13 |
-	| GET | /api/events | Historical events query | 11 |
-	| GET | /api/events/stream | SSE live event stream | 12 |
-	| GET | /api/sensors | Tracked sensors overview | 4 |
-	| GET | /api/stats | Aggregated stats | 11 |
+	| GET | /health | Replica health and counters | 13, 25, 29 |
+	| GET | /api/events | Historical events query | 10, 16 |
+	| GET | /api/events/stream | SSE live event stream | 17, 26 |
+	| GET | /api/sensors | Tracked sensors overview | 1, 4 |
+	| GET | /api/stats | Aggregated stats | 16 |
 
 
 ## CONTAINER_NAME: Gateway
@@ -186,7 +186,7 @@ Processors connect to:
 Neutral-region API entrypoint with health-checked round-robin load balancing.
 
 ### USER STORIES:
-9, 10, 11, 12, 13
+14, 15, 19, 22, 27, 28
 
 ### PORTS:
 8081:8081
@@ -215,12 +215,12 @@ Gateway connects to:
 
 	| HTTP METHOD | URL | Description | User Stories |
 	| ----------- | --- | ----------- | ------------ |
-	| GET | /health | Gateway status and healthy count | 9 |
-	| GET | /api/events | Proxied events query | 11 |
-	| GET | /api/events/stream | Proxied SSE stream | 12 |
-	| GET | /api/sensors | Proxied sensors endpoint | 11 |
-	| GET | /api/stats | Proxied stats endpoint | 11 |
-	| GET | /api/replicas | Replica liveness snapshot | 13 |
+	| GET | /health | Gateway status and healthy count | 14, 28 |
+	| GET | /api/events | Proxied events query | 15, 16 |
+	| GET | /api/events/stream | Proxied SSE stream | 15, 26 |
+	| GET | /api/sensors | Proxied sensors endpoint | 15 |
+	| GET | /api/stats | Proxied stats endpoint | 15 |
+	| GET | /api/replicas | Replica liveness snapshot | 14, 25 |
 
 
 ## CONTAINER_NAME: Frontend
@@ -229,7 +229,7 @@ Gateway connects to:
 Operator dashboard for live monitoring, filters, and replica health visibility.
 
 ### USER STORIES:
-11, 12, 13
+16, 17, 18, 19, 23, 24, 25, 26
 
 ### PORTS:
 3000:80
@@ -253,7 +253,7 @@ Frontend connects to Gateway endpoints.
 
 	| Name | Description | Related Microservice | User Stories |
 	| ---- | ----------- | -------------------- | ------------ |
-	| Dashboard | Real-time table, filters, stats, replica health | gateway | 11, 12, 13 |
+	| Dashboard | Real-time table, filters, stats, replica health | gateway | 16, 17, 18, 19, 23, 24, 25, 26 |
 
 
 ## CONTAINER_NAME: PostgreSQL
@@ -262,7 +262,7 @@ Frontend connects to Gateway endpoints.
 Persistent database for deduplicated seismic events and gateway metadata.
 
 ### USER STORIES:
-6, 11
+10, 16
 
 ### PORTS:
 5432:5432
